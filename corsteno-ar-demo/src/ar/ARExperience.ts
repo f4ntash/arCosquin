@@ -19,7 +19,7 @@ export class ARExperience {
   private animationFrame = 0;
   private isRunning = false;
   private hasShownIntro = false;
-
+  // Arexperience is a singleton, so we can use a static instance to ensure only one instance is running at a time.
   constructor(container: HTMLElement, callbacks: ARExperienceCallbacks) {
     this.container = container;
     this.callbacks = callbacks;
