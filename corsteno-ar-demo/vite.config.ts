@@ -1,12 +1,29 @@
 import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 
-export default defineConfig({
-  server: {
-    host: "0.0.0.0",
-    https: {
-      key: readFileSync(new URL("./certs/key.pem", import.meta.url)),
-      cert: readFileSync(new URL("./certs/cert.pem", import.meta.url)),
-    },
-  },
+export default defineConfig(({ command }) => {
+  const isDev = command === "serve";
+
+  const keyPath = new URL("./certs/key.pem", import.meta.url);
+  const certPath = new URL("./certs/cert.pem", import.meta.url);
+
+  const hasLocalCerts =
+    existsSync(keyPath) &&
+    existsSync(certPath);
+
+  return {
+    server:
+      isDev && hasLocalCerts
+        ? {
+            host: "0.0.0.0",
+            https: {
+              key: readFileSync(keyPath),
+              cert: readFileSync(certPath),
+            },
+          }
+        : {
+            host: "0.0.0.0",
+          },
+  };
 });
