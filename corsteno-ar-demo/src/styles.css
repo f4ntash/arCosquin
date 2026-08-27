@@ -227,6 +227,25 @@ h1 span {
   backdrop-filter: blur(14px);
 }
 
+.offline-toast {
+  position: absolute;
+  top: max(68px, calc(env(safe-area-inset-top) + 58px));
+  left: 50%;
+  z-index: 8;
+  max-width: calc(100vw - 32px);
+  padding: 8px 11px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(248, 240, 230, 0.16);
+  border-radius: 999px;
+  background: rgba(5, 5, 5, 0.72);
+  color: #f8f0e6;
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0;
+  pointer-events: none;
+  backdrop-filter: blur(14px);
+}
+
 .artist-card {
   position: absolute;
   left: 50%;
@@ -300,10 +319,17 @@ h1 span {
 }
 
 .now-section__header {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
   padding-inline: 18px;
   text-shadow: 0 2px 16px rgba(0, 0, 0, 0.68);
+}
+
+.now-section__header div {
+  display: grid;
+  gap: 2px;
 }
 
 .now-section__header span {
@@ -318,6 +344,21 @@ h1 span {
   font-size: 0.95rem;
   font-weight: 950;
   letter-spacing: 0;
+}
+
+.favorites-open-button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(248, 240, 230, 0.16);
+  border-radius: 999px;
+  background: rgba(5, 5, 5, 0.68);
+  color: #f8f0e6;
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0;
+  pointer-events: auto;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
 }
 
 .now-show-rail {
@@ -378,8 +419,37 @@ h1 span {
   line-height: 1.2;
 }
 
-.now-show-card button,
-.schedule-list button {
+.show-card-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  gap: 10px;
+}
+
+.favorite-button {
+  display: grid;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(248, 240, 230, 0.08);
+  color: #d8cfc2;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.favorite-button.is-active {
+  color: #fff7f2;
+  background: rgba(215, 45, 50, 0.2);
+}
+
+.now-show-card > button,
+.show-route-button {
   min-height: 36px;
   border: 0;
   border-radius: 8px;
@@ -391,7 +461,7 @@ h1 span {
   cursor: pointer;
 }
 
-.now-show-card button {
+.now-show-card > button {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -400,7 +470,7 @@ h1 span {
   padding-inline: 10px;
 }
 
-.now-show-card button span {
+.now-show-card > button span {
   font-size: 0.66rem;
   opacity: 0.8;
 }
@@ -686,6 +756,10 @@ h1 span {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.sheet-content[data-sheet-type='favorites'] {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 .bottom-sheet h2 {
   margin: 0;
   color: #f8f0e6;
@@ -763,7 +837,7 @@ h1 span {
 .schedule-list p,
 .map-list p {
   display: grid;
-  grid-template-columns: 4.5rem minmax(0, 1fr) auto;
+  grid-template-columns: 4.5rem minmax(0, 1fr) 2.75rem auto;
   gap: 8px 12px;
   align-items: center;
   min-width: 0;
@@ -808,11 +882,68 @@ h1 span {
   overflow-wrap: anywhere;
 }
 
-.schedule-list button {
+.schedule-list .favorite-button {
   grid-row: 1 / span 2;
   grid-column: 3;
-  min-width: 6.4rem;
+  justify-self: end;
+}
+
+.schedule-list .show-route-button {
+  grid-row: 1 / span 2;
+  grid-column: 4;
+  min-width: 3rem;
   padding-inline: 10px;
+}
+
+.schedule-list em {
+  display: block;
+  margin-top: 4px;
+  color: #d72d32;
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 950;
+}
+
+.favorites-list,
+.favorites-day {
+  display: grid;
+  gap: 8px;
+}
+
+.favorites-day h3 {
+  margin: 14px 0 0;
+  color: #d8cfc2;
+  font-size: 0.72rem;
+  font-weight: 950;
+}
+
+.favorites-empty {
+  display: grid;
+  gap: 10px;
+  padding: 18px 0 calc(32px + env(safe-area-inset-bottom));
+}
+
+.favorites-empty strong {
+  color: #f8f0e6;
+  font-size: 0.86rem;
+  font-weight: 950;
+}
+
+.favorites-empty span {
+  color: #cfc6ba;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.favorites-empty button {
+  min-height: 42px;
+  border: 1px solid rgba(248, 240, 230, 0.18);
+  border-radius: 8px;
+  background: rgba(248, 240, 230, 0.08);
+  color: #f8f0e6;
+  font-size: 0.72rem;
+  font-weight: 950;
+  cursor: pointer;
 }
 
 .map-list span {

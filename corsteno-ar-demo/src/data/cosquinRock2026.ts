@@ -24,6 +24,7 @@ export type FestivalShow = {
 };
 
 export type ResolvedFestivalShow = FestivalShow & {
+  id: string;
   stage: FestivalStage;
   startsAt: Date;
   endsAt: Date;
@@ -37,6 +38,7 @@ export type CurrentShowAcrossStage = {
 };
 
 export type ShowStatus = 'live' | 'upcoming' | 'finished';
+export type ShowTemporalState = 'live' | 'upcoming-today' | 'future-day' | 'finished';
 
 export const DEMO_TIME_ENABLED = true;
 export const DEMO_DATE = new Date('2026-02-14T18:00:00-03:00');
@@ -283,6 +285,25 @@ export const getShowStatus = (show: ResolvedFestivalShow, date: Date): ShowStatu
   return 'finished';
 };
 
+export const getShowTemporalState = (show: ResolvedFestivalShow, date: Date): ShowTemporalState => {
+  const festivalDay = getFestivalDay(date);
+  const time = date.getTime();
+
+  if (time >= show.endsAt.getTime()) return 'finished';
+  if (festivalDay !== show.day) return time < show.startsAt.getTime() ? 'future-day' : 'finished';
+  if (time >= show.startsAt.getTime()) return 'live';
+  return 'upcoming-today';
+};
+
+export const canNavigateToShow = (show: ResolvedFestivalShow, date: Date): boolean => {
+  const state = getShowTemporalState(show, date);
+  return state === 'live' || state === 'upcoming-today';
+};
+
+export const getShowId = (show: FestivalShow): string => {
+  return `${show.day}-${show.stageId}-${slugify(show.artist)}-${show.startTime.replace(':', '')}`;
+};
+
 export const formatTimeUntil = (show: ResolvedFestivalShow, date: Date): string => {
   const minutes = Math.max(0, Math.ceil((show.startsAt.getTime() - date.getTime()) / 60_000));
   if (minutes < 60) return `${minutes} MIN`;
@@ -313,6 +334,7 @@ const resolveShow = (show: FestivalShow, nextShow?: FestivalShow): ResolvedFesti
 
   return {
     ...show,
+    id: getShowId(show),
     stage: getStageById(show.stageId),
     startsAt,
     endsAt,
@@ -335,4 +357,13 @@ const getScheduleDate = (day: FestivalDay, time: string): Date => {
 
 const addMinutes = (date: Date, minutes: number): Date => {
   return new Date(date.getTime() + minutes * 60_000);
+};
+
+const slugify = (value: string): string => {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 };

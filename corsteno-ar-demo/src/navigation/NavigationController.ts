@@ -23,7 +23,7 @@ const GEOLOCATION_OPTIONS: PositionOptions = {
 
 export class NavigationController {
   private readonly callbacks: NavigationCallbacks;
-  private readonly stageId: StageId;
+  private stageId: StageId;
   private watchId: number | null = null;
   private position: NavigationPosition | null = null;
   private heading: number | null = null;
@@ -55,6 +55,13 @@ export class NavigationController {
     window.removeEventListener('deviceorientation', this.handleOrientation);
     this.position = null;
     this.heading = null;
+  }
+
+  setDestinationStage(stageId: StageId): void {
+    this.stageId = stageId;
+    if (this.isRunning) {
+      this.emitUpdate('');
+    }
   }
 
   private async requestOrientationPermission(): Promise<void> {

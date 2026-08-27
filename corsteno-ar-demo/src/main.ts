@@ -2,6 +2,7 @@ import './styles.css';
 import { ARExperience } from './ar/ARExperience';
 import { DEBUG_NAVIGATION, DEFAULT_DEMO_STAGE_ID, DEMO_STAGE_LOCATIONS, getStageNavigationConfig } from './config/navigation';
 import {
+  canNavigateToShow,
   festivalDays,
   formatTimeUntil,
   formatShowTimeRange,
@@ -10,20 +11,29 @@ import {
   getFestivalDay,
   getShowsForStage,
   getStageById,
-  getShowStatus,
+  getShowTemporalState,
   getStages,
   getUpcomingShows,
   type FestivalDay,
   type ResolvedFestivalShow,
-  type ShowStatus,
+  type ShowTemporalState,
   type StageId,
 } from './data/cosquinRock2026';
+import {
+  getFavoriteShowIds,
+  getFavoriteShows,
+  getOverlappingFavoriteShowIds,
+  isFavoriteShow,
+  toggleFavoriteShow,
+} from './data/favoriteShows';
 import { NavigationController } from './navigation/NavigationController';
 import { calculateShortestAngleDelta, formatDistance } from './navigation/navigationMath';
 import type { NavigationState } from './navigation/navigationTypes';
+import { registerOfflineSupport, type OfflineStatus } from './offline/registerServiceWorker';
 
 type StatusMode = 'idle' | 'starting' | 'scanning' | 'found' | 'error';
 type ExperienceMode = 'scanning' | 'target' | 'navigation';
+type SheetType = 'schedule' | 'map' | 'favorites';
 type NavigationSelection = {
   stageId: StageId;
   show?: ResolvedFestivalShow;
@@ -46,6 +56,7 @@ let arrowAnimationFrame = 0;
 let selectedScheduleDay: FestivalDay = getActiveFestivalDay();
 let selectedScheduleStageId: StageId = DEFAULT_DEMO_STAGE_ID;
 let selectedNavigation: NavigationSelection | null = null;
+let offlineToastTimeout = 0;
 
 function getActiveFestivalDay(): FestivalDay {
   return getFestivalDay(getAppNow()) ?? festivalDays[0].id;
@@ -64,17 +75,13 @@ const escapeHtml = (value: string): string => {
   });
 };
 
-const getShowKey = (show: ResolvedFestivalShow): string => {
-  return `${show.day}|${show.stageId}|${show.startTime}|${show.artist}`;
-};
-
 const findShowByKey = (key: string | undefined): ResolvedFestivalShow | null => {
   if (!key) return null;
 
   return (
     festivalDays
       .flatMap((day) => getStages(day.id).flatMap((stage) => getShowsForStage(day.id, stage.id)))
-      .find((show) => getShowKey(show) === key) ?? null
+      .find((show) => show.id === key) ?? null
   );
 };
 
@@ -92,10 +99,19 @@ const getNavigationStageId = (): StageId => {
   return selectedNavigation?.stageId ?? getNavigationShow()?.stageId ?? DEFAULT_DEMO_STAGE_ID;
 };
 
-const getStatusLabel = (status: ShowStatus, show: ResolvedFestivalShow, now: Date): string => {
+const getStatusLabel = (status: ShowTemporalState, show: ResolvedFestivalShow, now: Date): string => {
   if (status === 'live') return '● EN VIVO';
-  if (status === 'upcoming') return `EN ${formatTimeUntil(show, now)}`;
+  if (status === 'upcoming-today') return `EN ${formatTimeUntil(show, now)}`;
+  if (status === 'future-day') return getFutureDayLabel(show.day);
   return 'FINALIZADO';
+};
+
+const getFutureDayLabel = (day: FestivalDay): string => {
+  const currentDay = getActiveFestivalDay();
+  const currentIndex = festivalDays.findIndex((item) => item.id === currentDay);
+  const showIndex = festivalDays.findIndex((item) => item.id === day);
+  if (currentIndex >= 0 && showIndex === currentIndex + 1) return 'MAÑANA';
+  return festivalDays.find((item) => item.id === day)?.label ?? day;
 };
 
 const renderShell = (): void => {
@@ -125,8 +141,11 @@ const renderShell = (): void => {
         </div>
         <section class="now-section" data-now-section hidden>
           <header class="now-section__header">
-            <span>COSQUÍN ROCK 2026</span>
-            <strong>AHORA EN COSQUÍN</strong>
+            <div>
+              <span>COSQUÍN ROCK 2026</span>
+              <strong>AHORA EN COSQUÍN</strong>
+            </div>
+            <button class="favorites-open-button" type="button" data-open-favorites>★ MI GRILLA</button>
           </header>
           <div class="now-show-rail" data-current-shows></div>
         </section>
@@ -150,7 +169,7 @@ const renderShell = (): void => {
             <p class="navigation-gps-pill" data-navigation-error hidden></p>
             <nav class="navigation-actions" aria-label="Controles de navegación">
               <button class="navigation-action-button" type="button" data-open-schedule>GRILLA</button>
-              <button class="navigation-action-button" type="button" data-open-map>MAPA</button>
+              <button class="navigation-action-button" type="button" data-open-favorites-nav>★ MI GRILLA</button>
               <button class="navigation-action-button" type="button" data-exit-navigation>SALIR</button>
             </nav>
           </footer>
@@ -164,6 +183,7 @@ const renderShell = (): void => {
         </section>
         <div class="target-badge" data-target-badge hidden>TARGET DETECTADO</div>
       </section>
+      <div class="offline-toast" data-offline-toast hidden></div>
     </main>
   `;
 
@@ -171,7 +191,8 @@ const renderShell = (): void => {
   const closeButton = app.querySelector<HTMLButtonElement>('.close-button');
   const exitNavigationButton = app.querySelector<HTMLButtonElement>('[data-exit-navigation]');
   const scheduleButton = app.querySelector<HTMLButtonElement>('[data-open-schedule]');
-  const mapButton = app.querySelector<HTMLButtonElement>('[data-open-map]');
+  const navigationFavoritesButton = app.querySelector<HTMLButtonElement>('[data-open-favorites-nav]');
+  const favoritesButton = app.querySelector<HTMLButtonElement>('[data-open-favorites]');
   const closeSheetButton = app.querySelector<HTMLButtonElement>('[data-close-sheet]');
   const sheetBackdrop = app.querySelector<HTMLElement>('[data-sheet-backdrop]');
 
@@ -179,7 +200,8 @@ const renderShell = (): void => {
   closeButton?.addEventListener('click', closeExperience);
   exitNavigationButton?.addEventListener('click', exitNavigationMode);
   scheduleButton?.addEventListener('click', () => openSheet('schedule'));
-  mapButton?.addEventListener('click', () => openSheet('map'));
+  navigationFavoritesButton?.addEventListener('click', () => openSheet('favorites'));
+  favoritesButton?.addEventListener('click', () => openSheet('favorites'));
   closeSheetButton?.addEventListener('click', closeSheet);
   sheetBackdrop?.addEventListener('click', closeSheet);
   updateFestivalUi();
@@ -223,6 +245,16 @@ const updateFestivalUi = (): void => {
   const day = getActiveFestivalDay();
   const currentShows = getCurrentShowsAcrossStages(day, now);
   const currentShowsContainer = app.querySelector<HTMLElement>('[data-current-shows]');
+  const favoritesButton = app.querySelector<HTMLElement>('[data-open-favorites]');
+  const navigationFavoritesButton = app.querySelector<HTMLElement>('[data-open-favorites-nav]');
+  const favoriteCount = getFavoriteShowIds().length;
+
+  if (favoritesButton) {
+    favoritesButton.textContent = favoriteCount > 0 ? `★ MI GRILLA · ${favoriteCount}` : '★ MI GRILLA';
+  }
+  if (navigationFavoritesButton) {
+    navigationFavoritesButton.textContent = favoriteCount > 0 ? `★ ${favoriteCount}` : '★ MI GRILLA';
+  }
 
   if (currentShowsContainer) {
     currentShowsContainer.innerHTML =
@@ -230,12 +262,15 @@ const updateFestivalUi = (): void => {
         ? currentShows
             .map(
               ({ stageName, stageShortName, show }) => `
-                <article class="now-show-card" data-show-card="${escapeHtml(getShowKey(show))}">
-                  <span class="show-status show-status--live">● EN VIVO</span>
+                <article class="now-show-card" data-show-card="${escapeHtml(show.id)}">
+                  <div class="show-card-topline">
+                    <span class="show-status show-status--live">● EN VIVO</span>
+                    ${renderFavoriteButton(show)}
+                  </div>
                   <strong>${escapeHtml(show.artist)}</strong>
                   <small>${escapeHtml(stageName)}</small>
                   <time>${escapeHtml(formatShowTimeRange(show))}</time>
-                  <button type="button" data-navigate-show="${escapeHtml(getShowKey(show))}">
+                  <button type="button" data-navigate-show="${escapeHtml(show.id)}">
                     IR A ESTE SHOW
                     <span>${escapeHtml(stageShortName)}</span>
                   </button>
@@ -256,8 +291,20 @@ const updateFestivalUi = (): void => {
 };
 
 const bindNavigationButtons = (root: ParentNode): void => {
+  root.querySelectorAll<HTMLButtonElement>('[data-toggle-favorite]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleFavoriteShow(button.dataset.toggleFavorite ?? '');
+      updateFestivalUi();
+      const content = app.querySelector<HTMLElement>('[data-sheet-content]');
+      if (content?.dataset.sheetType === 'schedule') renderScheduleSheet(content);
+      if (content?.dataset.sheetType === 'favorites') renderFavoritesSheet(content);
+    });
+  });
+
   root.querySelectorAll<HTMLButtonElement>('[data-navigate-show]').forEach((button) => {
-    button.addEventListener('click', () => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
       const show = findShowByKey(button.dataset.navigateShow);
       if (show) {
         void startNavigationToShow(show);
@@ -277,10 +324,24 @@ const bindNavigationButtons = (root: ParentNode): void => {
   });
 };
 
+const renderFavoriteButton = (show: ResolvedFestivalShow): string => {
+  const favorite = isFavoriteShow(show.id);
+  return `
+    <button
+      class="favorite-button ${favorite ? 'is-active' : ''}"
+      type="button"
+      aria-label="${favorite ? 'Quitar de Mi Grilla' : 'Agregar a Mi Grilla'}"
+      data-toggle-favorite="${escapeHtml(show.id)}"
+    >
+      ${favorite ? '★' : '☆'}
+    </button>
+  `;
+};
+
 const updateNavigationShowCard = (): void => {
   const show = getNavigationShow();
   const now = getAppNow();
-  const label = show ? getStatusLabel(getShowStatus(show, now), show, now) : 'SHOW';
+  const label = show ? getStatusLabel(getShowTemporalState(show, now), show, now) : 'SHOW';
   const artist = show?.artist ?? 'Seleccioná un show';
   const meta = show ? `${show.stage.name} · ${formatShowTimeRange(show)}` : 'Elegí una banda para navegar';
   const navigationShowLabel = app.querySelector<HTMLElement>('[data-navigation-show-label]');
@@ -300,6 +361,14 @@ const startNavigationToShow = async (show: ResolvedFestivalShow): Promise<void> 
   selectedScheduleDay = show.day;
   selectedScheduleStageId = show.stageId;
   closeSheet();
+
+  if (mode === 'navigation' && navigation) {
+    updateNavigationShowCard();
+    navigation.setDestinationStage(show.stageId);
+    updateNavigationOverlay(createDemoNavigationState());
+    return;
+  }
+
   await enterNavigationMode();
 };
 
@@ -328,6 +397,36 @@ const showTargetBadge = (): void => {
   badgeTimeout = window.setTimeout(() => {
     badge.hidden = true;
   }, 1400);
+};
+
+const showOfflineStatus = (status: OfflineStatus): void => {
+  const toast = app.querySelector<HTMLElement>('[data-offline-toast]');
+  if (!toast) return;
+
+  window.clearTimeout(offlineToastTimeout);
+
+  if (status === 'offline') {
+    toast.textContent = 'MODO OFFLINE';
+    toast.hidden = false;
+    return;
+  }
+
+  if (status === 'online') {
+    toast.hidden = true;
+    toast.textContent = '';
+    return;
+  }
+
+  if (status === 'ready') {
+    toast.textContent = '✓ LISTO PARA USAR OFFLINE';
+    toast.hidden = false;
+    offlineToastTimeout = window.setTimeout(() => {
+      if (navigator.onLine) {
+        toast.hidden = true;
+        toast.textContent = '';
+      }
+    }, 3600);
+  }
 };
 
 const startExperience = async (): Promise<void> => {
@@ -538,7 +637,7 @@ const createDemoNavigationState = (): NavigationState => {
   };
 };
 
-const openSheet = (type: 'schedule' | 'map'): void => {
+const openSheet = (type: SheetType): void => {
   const sheet = app.querySelector<HTMLElement>('[data-bottom-sheet]');
   const backdrop = app.querySelector<HTMLElement>('[data-sheet-backdrop]');
   const content = app.querySelector<HTMLElement>('[data-sheet-content]');
@@ -548,8 +647,10 @@ const openSheet = (type: 'schedule' | 'map'): void => {
 
   if (type === 'schedule') {
     renderScheduleSheet(content);
-  } else {
+  } else if (type === 'map') {
     renderMapSheet(content);
+  } else {
+    renderFavoritesSheet(content);
   }
 
   backdrop.hidden = false;
@@ -614,18 +715,19 @@ const renderScheduleSheet = (content: HTMLElement): void => {
       <div class="schedule-list">
         ${shows
         .map((show) => {
-          const status = getShowStatus(show, now);
+          const status = getShowTemporalState(show, now);
           const isCurrent = status === 'live';
-          const canNavigate = status !== 'finished';
+          const canNavigate = canNavigateToShow(show, now);
           const statusLabel = getStatusLabel(status, show, now);
           return `
             <p class="${isCurrent ? 'is-current' : ''}">
               <time>${escapeHtml(show.startTime)}</time>
               <strong>${escapeHtml(show.artist)}</strong>
               <span>${escapeHtml(`${show.stage.shortName} · ${formatShowTimeRange(show)} · ${statusLabel}`)}</span>
+              ${renderFavoriteButton(show)}
               ${
                 canNavigate
-                  ? `<button type="button" data-navigate-show="${escapeHtml(getShowKey(show))}">IR A ESTE SHOW</button>`
+                  ? `<button class="show-route-button" type="button" data-navigate-show="${escapeHtml(show.id)}">IR A ESTE SHOW</button>`
                   : ''
               }
             </p>
@@ -650,6 +752,75 @@ const renderScheduleSheet = (content: HTMLElement): void => {
       renderScheduleSheet(content);
     });
   });
+
+  bindNavigationButtons(content);
+};
+
+const renderFavoritesSheet = (content: HTMLElement): void => {
+  const now = getAppNow();
+  const favoriteShows = getFavoriteShows();
+  const overlappingIds = getOverlappingFavoriteShowIds();
+
+  if (favoriteShows.length === 0) {
+    content.innerHTML = `
+      <h2>MI GRILLA</h2>
+      <div class="sheet-scroll-area">
+        <div class="favorites-empty">
+          <strong>TODAVÍA NO ARMASTE TU GRILLA</strong>
+          <span>Tocá ☆ en las bandas que querés ver.</span>
+          <button type="button" data-open-full-schedule>VER GRILLA COMPLETA</button>
+        </div>
+      </div>
+    `;
+    content.querySelector<HTMLButtonElement>('[data-open-full-schedule]')?.addEventListener('click', () => {
+      openSheet('schedule');
+    });
+    return;
+  }
+
+  content.innerHTML = `
+    <h2>MI GRILLA</h2>
+    <div class="sheet-scroll-area">
+      <div class="favorites-list">
+        ${festivalDays
+          .map((day) => {
+            const shows = favoriteShows.filter((show) => show.day === day.id);
+            if (shows.length === 0) return '';
+
+            return `
+              <section class="favorites-day">
+                <h3>${escapeHtml(day.fullLabel)}</h3>
+                <div class="schedule-list">
+                  ${shows
+                    .map((show) => {
+                      const status = getShowTemporalState(show, now);
+                      const canNavigate = canNavigateToShow(show, now);
+                      const statusLabel = getStatusLabel(status, show, now);
+                      return `
+                        <p class="${status === 'live' ? 'is-current' : ''}">
+                          <time>${escapeHtml(show.startTime)}</time>
+                          <strong>${escapeHtml(show.artist)}</strong>
+                          <span>${escapeHtml(`${show.stage.shortName} · ${formatShowTimeRange(show)} · ${statusLabel}`)}${
+                            overlappingIds.has(show.id) ? '<em>⚠ SE SUPERPONE</em>' : ''
+                          }</span>
+                          ${renderFavoriteButton(show)}
+                          ${
+                            canNavigate
+                              ? `<button class="show-route-button" type="button" data-navigate-show="${escapeHtml(show.id)}">IR</button>`
+                              : ''
+                          }
+                        </p>
+                      `;
+                    })
+                    .join('')}
+                </div>
+              </section>
+            `;
+          })
+          .join('')}
+      </div>
+    </div>
+  `;
 
   bindNavigationButtons(content);
 };
@@ -690,3 +861,7 @@ const closeSheet = (): void => {
 };
 
 renderShell();
+
+if (import.meta.env.PROD) {
+  void registerOfflineSupport(showOfflineStatus);
+}
