@@ -288,6 +288,146 @@ h1 span {
   transform: translateY(1px);
 }
 
+.now-section {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px));
+  z-index: 4;
+  display: grid;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.now-section__header {
+  display: grid;
+  gap: 2px;
+  padding-inline: 18px;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.68);
+}
+
+.now-section__header span {
+  color: #d8cfc2;
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.now-section__header strong {
+  color: #f8f0e6;
+  font-size: 0.95rem;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.now-show-rail {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 0 18px 2px;
+  pointer-events: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.now-show-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.now-show-card {
+  display: grid;
+  flex: 0 0 min(78vw, 20rem);
+  min-height: 172px;
+  gap: 5px;
+  padding: 14px;
+  border: 1px solid rgba(120, 22, 25, 0.46);
+  border-radius: 12px;
+  background: rgba(5, 5, 5, 0.82);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.38);
+  color: #f8f0e6;
+  cursor: pointer;
+  scroll-snap-align: start;
+  touch-action: manipulation;
+  backdrop-filter: blur(14px);
+}
+
+.show-status {
+  color: #cfc6ba;
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.show-status--live {
+  color: #d72d32;
+}
+
+.now-show-card strong {
+  color: #f8f0e6;
+  font-size: clamp(1.35rem, 7vw, 2rem);
+  font-weight: 950;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.now-show-card small,
+.now-show-card time {
+  color: #d8cfc2;
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.now-show-card button,
+.schedule-list button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: #d72d32;
+  color: #fff7f2;
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.now-show-card button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+  padding-inline: 10px;
+}
+
+.now-show-card button span {
+  font-size: 0.66rem;
+  opacity: 0.8;
+}
+
+.now-empty {
+  display: grid;
+  flex: 0 0 min(78vw, 20rem);
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid rgba(248, 240, 230, 0.14);
+  border-radius: 12px;
+  background: rgba(5, 5, 5, 0.72);
+  backdrop-filter: blur(14px);
+}
+
+.now-empty strong {
+  color: #f8f0e6;
+  font-size: 0.82rem;
+  font-weight: 950;
+}
+
+.now-empty span {
+  color: #cfc6ba;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
 .navigation-overlay {
   position: absolute;
   inset: 0;
@@ -498,16 +638,22 @@ h1 span {
   bottom: 0;
   z-index: 7;
   display: grid;
-  gap: 18px;
-  max-height: min(74dvh, 31rem);
-  padding: 10px 18px max(18px, env(safe-area-inset-bottom));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  height: min(86dvh, 38rem);
+  max-height: calc(100dvh - max(20px, env(safe-area-inset-top)));
+  padding:
+    12px 20px
+    max(20px, env(safe-area-inset-bottom));
   border-top: 1px solid rgba(248, 240, 230, 0.16);
   border-radius: 14px 14px 0 0;
   background: rgba(8, 8, 8, 0.92);
   box-shadow: 0 -18px 42px rgba(0, 0, 0, 0.46);
+  overflow: hidden;
   transform: translateY(105%);
   transition: transform 220ms ease-out;
   pointer-events: auto;
+  touch-action: auto;
   backdrop-filter: blur(16px);
 }
 
@@ -519,8 +665,25 @@ h1 span {
   justify-self: center;
   width: 42px;
   height: 4px;
+  margin-bottom: 4px;
   border-radius: 999px;
   background: rgba(248, 240, 230, 0.34);
+}
+
+.sheet-content {
+  display: grid;
+  min-height: 0;
+  gap: 12px;
+  overflow: hidden;
+  padding-top: 4px;
+}
+
+.sheet-content[data-sheet-type='schedule'] {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
+.sheet-content[data-sheet-type='map'] {
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .bottom-sheet h2 {
@@ -531,21 +694,93 @@ h1 span {
   letter-spacing: 0;
 }
 
+.schedule-tabs,
+.stage-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+  touch-action: pan-x;
+  scrollbar-width: none;
+}
+
+.schedule-tabs::-webkit-scrollbar,
+.stage-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.schedule-tabs button,
+.stage-tabs button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  border: 1px solid rgba(248, 240, 230, 0.14);
+  border-radius: 999px;
+  background: rgba(248, 240, 230, 0.08);
+  color: #d8cfc2;
+  font-size: 0.72rem;
+  font-weight: 950;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.schedule-tabs button {
+  padding: 0 13px;
+}
+
+.stage-tabs button {
+  padding: 0 11px;
+}
+
+.stage-tabs {
+  margin-bottom: 8px;
+}
+
+.schedule-tabs button.is-active,
+.stage-tabs button.is-active {
+  border-color: rgba(215, 45, 50, 0.68);
+  background: rgba(215, 45, 50, 0.2);
+  color: #fff7f2;
+}
+
+.sheet-scroll-area {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
 .schedule-list,
 .map-list {
   display: grid;
-  gap: 4px;
+  gap: 0;
+  min-width: 0;
+  padding-bottom: calc(32px + env(safe-area-inset-bottom));
 }
 
 .schedule-list p,
 .map-list p {
   display: grid;
-  grid-template-columns: 4.5rem 1fr;
+  grid-template-columns: 4.5rem minmax(0, 1fr) auto;
   gap: 8px 12px;
   align-items: center;
+  min-width: 0;
   margin: 0;
-  padding: 11px 0;
+  padding: 15px 0;
   border-bottom: 1px solid rgba(248, 240, 230, 0.1);
+}
+
+.schedule-list p.is-current {
+  margin-inline: -8px;
+  padding-inline: 8px;
+  border-radius: 8px;
+  background: rgba(215, 45, 50, 0.14);
+}
+
+.map-list p {
+  grid-template-columns: 1fr auto;
 }
 
 .schedule-list time,
@@ -556,16 +791,28 @@ h1 span {
 }
 
 .schedule-list strong {
+  min-width: 0;
   color: #f8f0e6;
   font-size: 0.9rem;
   font-weight: 950;
+  line-height: 1.15;
 }
 
 .schedule-list span {
   grid-column: 2;
+  min-width: 0;
   color: #cfc6ba;
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.schedule-list button {
+  grid-row: 1 / span 2;
+  grid-column: 3;
+  min-width: 6.4rem;
+  padding-inline: 10px;
 }
 
 .map-list span {
@@ -573,6 +820,13 @@ h1 span {
   color: #f8f0e6;
   font-size: 0.9rem;
   font-weight: 900;
+}
+
+.sheet-empty {
+  margin: 0;
+  color: #cfc6ba;
+  font-size: 0.82rem;
+  font-weight: 800;
 }
 
 .sheet-close-button {

@@ -1,12 +1,33 @@
 import './styles.css';
 import { ARExperience } from './ar/ARExperience';
-import { DEBUG_NAVIGATION } from './config/navigation';
+import { DEBUG_NAVIGATION, DEFAULT_DEMO_STAGE_ID, DEMO_STAGE_LOCATIONS, getStageNavigationConfig } from './config/navigation';
+import {
+  festivalDays,
+  formatTimeUntil,
+  formatShowTimeRange,
+  getAppNow,
+  getCurrentShowsAcrossStages,
+  getFestivalDay,
+  getShowsForStage,
+  getStageById,
+  getShowStatus,
+  getStages,
+  getUpcomingShows,
+  type FestivalDay,
+  type ResolvedFestivalShow,
+  type ShowStatus,
+  type StageId,
+} from './data/cosquinRock2026';
 import { NavigationController } from './navigation/NavigationController';
 import { calculateShortestAngleDelta, formatDistance } from './navigation/navigationMath';
 import type { NavigationState } from './navigation/navigationTypes';
 
 type StatusMode = 'idle' | 'starting' | 'scanning' | 'found' | 'error';
 type ExperienceMode = 'scanning' | 'target' | 'navigation';
+type NavigationSelection = {
+  stageId: StageId;
+  show?: ResolvedFestivalShow;
+};
 
 const app = document.querySelector<HTMLDivElement>('#app');
 
@@ -22,6 +43,60 @@ let hasActivatedExperience = false;
 let targetArrowRotation = 0;
 let currentArrowRotation = 0;
 let arrowAnimationFrame = 0;
+let selectedScheduleDay: FestivalDay = getActiveFestivalDay();
+let selectedScheduleStageId: StageId = DEFAULT_DEMO_STAGE_ID;
+let selectedNavigation: NavigationSelection | null = null;
+
+function getActiveFestivalDay(): FestivalDay {
+  return getFestivalDay(getAppNow()) ?? festivalDays[0].id;
+}
+
+const escapeHtml = (value: string): string => {
+  return value.replace(/[&<>"']/g, (character) => {
+    const entities: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    };
+    return entities[character];
+  });
+};
+
+const getShowKey = (show: ResolvedFestivalShow): string => {
+  return `${show.day}|${show.stageId}|${show.startTime}|${show.artist}`;
+};
+
+const findShowByKey = (key: string | undefined): ResolvedFestivalShow | null => {
+  if (!key) return null;
+
+  return (
+    festivalDays
+      .flatMap((day) => getStages(day.id).flatMap((stage) => getShowsForStage(day.id, stage.id)))
+      .find((show) => getShowKey(show) === key) ?? null
+  );
+};
+
+const getDefaultNavigationShow = (): ResolvedFestivalShow | null => {
+  const now = getAppNow();
+  const day = getActiveFestivalDay();
+  return getCurrentShowsAcrossStages(day, now)[0]?.show ?? getUpcomingShows(day, now, 1)[0] ?? null;
+};
+
+const getNavigationShow = (): ResolvedFestivalShow | null => {
+  return selectedNavigation?.show ?? getDefaultNavigationShow();
+};
+
+const getNavigationStageId = (): StageId => {
+  return selectedNavigation?.stageId ?? getNavigationShow()?.stageId ?? DEFAULT_DEMO_STAGE_ID;
+};
+
+const getStatusLabel = (status: ShowStatus, show: ResolvedFestivalShow, now: Date): string => {
+  if (status === 'live') return '● EN VIVO';
+  if (status === 'upcoming') return `EN ${formatTimeUntil(show, now)}`;
+  return 'FINALIZADO';
+};
 
 const renderShell = (): void => {
   app.innerHTML = `
@@ -48,13 +123,13 @@ const renderShell = (): void => {
           <strong data-status-title>APUNTÁ AL CARTEL</strong>
           <span data-status-detail>Buscando imagen...</span>
         </div>
-        <article class="artist-card" data-artist-card hidden>
-          <span class="artist-card__eyebrow">AHORA</span>
-          <strong class="artist-card__name">BABASÓNICOS</strong>
-          <span class="artist-card__meta">Escenario Norte</span>
-          <span class="artist-card__time">19:00 — 20:00</span>
-          <button class="route-button" type="button" data-route-button>CÓMO LLEGAR</button>
-        </article>
+        <section class="now-section" data-now-section hidden>
+          <header class="now-section__header">
+            <span>COSQUÍN ROCK 2026</span>
+            <strong>AHORA EN COSQUÍN</strong>
+          </header>
+          <div class="now-show-rail" data-current-shows></div>
+        </section>
         <div class="navigation-overlay" data-navigation-overlay hidden>
           <header class="navigation-header">
             <strong>COSQUÍN ROCK</strong>
@@ -62,13 +137,13 @@ const renderShell = (): void => {
           </header>
           <div class="navigation-core">
             <div class="navigation-arrow" data-navigation-arrow>↑</div>
-            <strong data-navigation-destination>ESCENARIO NORTE</strong>
+            <strong data-navigation-destination>ESCENARIO</strong>
             <span data-navigation-distance>Buscando ubicación...</span>
             <p data-navigation-instruction>Buscando orientación...</p>
             <article class="navigation-artist-card">
-              <span>AHORA</span>
-              <strong>BABASÓNICOS</strong>
-              <small>Escenario Norte · 19:00 — 20:00</small>
+              <span data-navigation-show-label>SHOW</span>
+              <strong data-navigation-show-artist>Seleccioná un show</strong>
+              <small data-navigation-show-meta>Elegí una banda para navegar</small>
             </article>
           </div>
           <footer class="navigation-footer">
@@ -84,7 +159,7 @@ const renderShell = (): void => {
         <div class="bottom-sheet-backdrop" data-sheet-backdrop hidden></div>
         <section class="bottom-sheet" data-bottom-sheet hidden aria-modal="true" role="dialog">
           <div class="sheet-handle"></div>
-          <div data-sheet-content></div>
+          <div class="sheet-content" data-sheet-content></div>
           <button class="sheet-close-button" type="button" data-close-sheet>CERRAR</button>
         </section>
         <div class="target-badge" data-target-badge hidden>TARGET DETECTADO</div>
@@ -94,7 +169,6 @@ const renderShell = (): void => {
 
   const startButton = app.querySelector<HTMLButtonElement>('.start-button');
   const closeButton = app.querySelector<HTMLButtonElement>('.close-button');
-  const routeButton = app.querySelector<HTMLButtonElement>('[data-route-button]');
   const exitNavigationButton = app.querySelector<HTMLButtonElement>('[data-exit-navigation]');
   const scheduleButton = app.querySelector<HTMLButtonElement>('[data-open-schedule]');
   const mapButton = app.querySelector<HTMLButtonElement>('[data-open-map]');
@@ -103,14 +177,12 @@ const renderShell = (): void => {
 
   startButton?.addEventListener('click', startExperience);
   closeButton?.addEventListener('click', closeExperience);
-  routeButton?.addEventListener('click', () => {
-    void enterNavigationMode();
-  });
   exitNavigationButton?.addEventListener('click', exitNavigationMode);
   scheduleButton?.addEventListener('click', () => openSheet('schedule'));
   mapButton?.addEventListener('click', () => openSheet('map'));
   closeSheetButton?.addEventListener('click', closeSheet);
   sheetBackdrop?.addEventListener('click', closeSheet);
+  updateFestivalUi();
 };
 
 const setView = (view: 'intro' | 'ar'): void => {
@@ -146,15 +218,98 @@ const setStatus = (mode: StatusMode, message?: string): void => {
   detail.textContent = mode === 'found' ? '' : 'Buscando imagen...';
 };
 
+const updateFestivalUi = (): void => {
+  const now = getAppNow();
+  const day = getActiveFestivalDay();
+  const currentShows = getCurrentShowsAcrossStages(day, now);
+  const currentShowsContainer = app.querySelector<HTMLElement>('[data-current-shows]');
+
+  if (currentShowsContainer) {
+    currentShowsContainer.innerHTML =
+      currentShows.length > 0
+        ? currentShows
+            .map(
+              ({ stageName, stageShortName, show }) => `
+                <article class="now-show-card" data-show-card="${escapeHtml(getShowKey(show))}">
+                  <span class="show-status show-status--live">● EN VIVO</span>
+                  <strong>${escapeHtml(show.artist)}</strong>
+                  <small>${escapeHtml(stageName)}</small>
+                  <time>${escapeHtml(formatShowTimeRange(show))}</time>
+                  <button type="button" data-navigate-show="${escapeHtml(getShowKey(show))}">
+                    IR A ESTE SHOW
+                    <span>${escapeHtml(stageShortName)}</span>
+                  </button>
+                </article>
+              `,
+            )
+            .join('')
+        : `
+          <div class="now-empty">
+            <strong>NO HAY SHOWS EN VIVO EN ESTE MOMENTO</strong>
+            <span>Revisá los próximos shows para elegir destino.</span>
+          </div>
+        `;
+  }
+
+  bindNavigationButtons(app);
+  updateNavigationShowCard();
+};
+
+const bindNavigationButtons = (root: ParentNode): void => {
+  root.querySelectorAll<HTMLButtonElement>('[data-navigate-show]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const show = findShowByKey(button.dataset.navigateShow);
+      if (show) {
+        void startNavigationToShow(show);
+      }
+    });
+  });
+
+  root.querySelectorAll<HTMLElement>('[data-show-card]').forEach((card) => {
+    card.addEventListener('click', (event) => {
+      if (event.target instanceof HTMLButtonElement) return;
+
+      const show = findShowByKey(card.dataset.showCard);
+      if (show) {
+        void startNavigationToShow(show);
+      }
+    });
+  });
+};
+
+const updateNavigationShowCard = (): void => {
+  const show = getNavigationShow();
+  const now = getAppNow();
+  const label = show ? getStatusLabel(getShowStatus(show, now), show, now) : 'SHOW';
+  const artist = show?.artist ?? 'Seleccioná un show';
+  const meta = show ? `${show.stage.name} · ${formatShowTimeRange(show)}` : 'Elegí una banda para navegar';
+  const navigationShowLabel = app.querySelector<HTMLElement>('[data-navigation-show-label]');
+  const navigationShowArtist = app.querySelector<HTMLElement>('[data-navigation-show-artist]');
+  const navigationShowMeta = app.querySelector<HTMLElement>('[data-navigation-show-meta]');
+
+  if (navigationShowLabel) navigationShowLabel.textContent = label;
+  if (navigationShowArtist) navigationShowArtist.textContent = artist;
+  if (navigationShowMeta) navigationShowMeta.textContent = meta;
+};
+
+const startNavigationToShow = async (show: ResolvedFestivalShow): Promise<void> => {
+  selectedNavigation = {
+    stageId: show.stageId,
+    show,
+  };
+  selectedScheduleDay = show.day;
+  selectedScheduleStageId = show.stageId;
+  closeSheet();
+  await enterNavigationMode();
+};
+
 const setMode = (nextMode: ExperienceMode): void => {
   mode = nextMode;
 
-  const routeButton = app.querySelector<HTMLElement>('[data-route-button]');
-  const artistCard = app.querySelector<HTMLElement>('[data-artist-card]');
+  const nowSection = app.querySelector<HTMLElement>('[data-now-section]');
   const navigationOverlay = app.querySelector<HTMLElement>('[data-navigation-overlay]');
 
-  if (artistCard) artistCard.hidden = nextMode !== 'target';
-  if (routeButton) routeButton.hidden = nextMode !== 'target';
+  if (nowSection) nowSection.hidden = nextMode !== 'target';
   if (navigationOverlay) navigationOverlay.hidden = nextMode !== 'navigation';
 
   if (nextMode === 'navigation') {
@@ -182,6 +337,10 @@ const startExperience = async (): Promise<void> => {
   setView('ar');
   setMode('scanning');
   setStatus('starting');
+  selectedScheduleDay = getActiveFestivalDay();
+  selectedScheduleStageId = DEFAULT_DEMO_STAGE_ID;
+  selectedNavigation = null;
+  updateFestivalUi();
   hasActivatedExperience = false;
 
   experience = new ARExperience(stage, {
@@ -212,17 +371,22 @@ const startExperience = async (): Promise<void> => {
 const enterNavigationMode = async (): Promise<void> => {
   clearNavigationError();
 
-  if (!navigation) {
-    navigation = new NavigationController({
+  const stageId = getNavigationStageId();
+  updateNavigationShowCard();
+
+  navigation?.stop();
+  navigation = new NavigationController(
+    {
       onUpdate: updateNavigationOverlay,
       onError: showNavigationError,
-    });
+    },
+    stageId,
+  );
 
-    try {
-      await navigation.start();
-    } catch (error) {
-      showNavigationError(error instanceof Error ? error.message : 'No se pudo iniciar la navegación.');
-    }
+  try {
+    await navigation.start();
+  } catch (error) {
+    showNavigationError(error instanceof Error ? error.message : 'No se pudo iniciar la navegación.');
   }
 
   setMode('navigation');
@@ -234,6 +398,8 @@ const exitNavigationMode = (): void => {
   navigation = null;
   stopArrowAnimation();
   clearNavigationOverlay();
+  selectedNavigation = null;
+  updateFestivalUi();
   setMode(hasActivatedExperience ? 'target' : 'scanning');
 };
 
@@ -245,6 +411,7 @@ const closeExperience = (): void => {
   experience = null;
   mode = 'scanning';
   hasActivatedExperience = false;
+  selectedNavigation = null;
   stopArrowAnimation();
   clearNavigationOverlay();
   closeSheet();
@@ -355,13 +522,17 @@ const clearNavigationOverlay = (): void => {
 };
 
 const createDemoNavigationState = (): NavigationState => {
+  const stageId = getNavigationStageId();
+  const stage = getStageById(stageId);
+  const destinationConfig = getStageNavigationConfig(stageId);
+
   return {
-    destinationName: 'ESCENARIO NORTE',
+    destinationName: stage.name.toUpperCase(),
     position: null,
     heading: 0,
     destinationBearing: null,
-    relativeBearing: 0,
-    distanceMeters: 320,
+    relativeBearing: destinationConfig.demoBearingDegrees,
+    distanceMeters: destinationConfig.demoDistanceMeters,
     instruction: 'SEGUÍ DERECHO',
     statusMessage: '',
   };
@@ -373,26 +544,13 @@ const openSheet = (type: 'schedule' | 'map'): void => {
   const content = app.querySelector<HTMLElement>('[data-sheet-content]');
   if (!sheet || !backdrop || !content) return;
 
-  content.innerHTML =
-    type === 'schedule'
-      ? `
-        <h2>HOY</h2>
-        <div class="schedule-list">
-          <p><time>19:00</time><strong>BABASÓNICOS</strong><span>NORTE · EN VIVO</span></p>
-          <p><time>20:15</time><strong>AIRBAG</strong><span>SUR</span></p>
-          <p><time>21:30</time><strong>DIVIDIDOS</strong><span>NORTE</span></p>
-          <p><time>22:45</time><strong>WOS</strong><span>MONTAÑA</span></p>
-        </div>
-      `
-      : `
-        <h2>MAPA DEL PREDIO</h2>
-        <div class="map-list">
-          <p><strong>NORTE</strong><span>320m</span></p>
-          <p><strong>SUR</strong><span>510m</span></p>
-          <p><strong>MONTAÑA</strong><span>680m</span></p>
-          <p><strong>HANGAR</strong><span>420m</span></p>
-        </div>
-      `;
+  content.dataset.sheetType = type;
+
+  if (type === 'schedule') {
+    renderScheduleSheet(content);
+  } else {
+    renderMapSheet(content);
+  }
 
   backdrop.hidden = false;
   sheet.hidden = false;
@@ -400,6 +558,122 @@ const openSheet = (type: 'schedule' | 'map'): void => {
     sheet.dataset.open = 'true';
     backdrop.dataset.open = 'true';
   });
+};
+
+const renderScheduleSheet = (content: HTMLElement): void => {
+  const now = getAppNow();
+  const stages = getStages(selectedScheduleDay);
+  const selectedStage = stages.some((stage) => stage.id === selectedScheduleStageId)
+    ? selectedScheduleStageId
+    : stages[0]?.id;
+
+  if (!selectedStage) {
+    content.innerHTML = '<h2>GRILLA</h2><p class="sheet-empty">No hay shows cargados para este día.</p>';
+    return;
+  }
+
+  selectedScheduleStageId = selectedStage;
+
+  const selectedDayLabel =
+    festivalDays.find((day) => day.id === selectedScheduleDay)?.fullLabel ?? 'GRILLA COSQUÍN ROCK';
+  const shows = getShowsForStage(selectedScheduleDay, selectedScheduleStageId);
+
+  content.innerHTML = `
+    <h2>${escapeHtml(selectedDayLabel)}</h2>
+    <div class="schedule-tabs" aria-label="Días del festival">
+      ${festivalDays
+        .map(
+          (day) => `
+            <button
+              class="${day.id === selectedScheduleDay ? 'is-active' : ''}"
+              type="button"
+              data-schedule-day="${day.id}"
+            >
+              ${escapeHtml(day.label)}
+            </button>
+          `,
+        )
+        .join('')}
+    </div>
+    <div class="stage-tabs" aria-label="Escenarios">
+      ${stages
+        .map(
+          (stage) => `
+            <button
+              class="${stage.id === selectedScheduleStageId ? 'is-active' : ''}"
+              type="button"
+              data-schedule-stage="${stage.id}"
+            >
+              ${escapeHtml(stage.shortName)}
+            </button>
+          `,
+        )
+        .join('')}
+    </div>
+    <div class="sheet-scroll-area">
+      <div class="schedule-list">
+        ${shows
+        .map((show) => {
+          const status = getShowStatus(show, now);
+          const isCurrent = status === 'live';
+          const canNavigate = status !== 'finished';
+          const statusLabel = getStatusLabel(status, show, now);
+          return `
+            <p class="${isCurrent ? 'is-current' : ''}">
+              <time>${escapeHtml(show.startTime)}</time>
+              <strong>${escapeHtml(show.artist)}</strong>
+              <span>${escapeHtml(`${show.stage.shortName} · ${formatShowTimeRange(show)} · ${statusLabel}`)}</span>
+              ${
+                canNavigate
+                  ? `<button type="button" data-navigate-show="${escapeHtml(getShowKey(show))}">IR A ESTE SHOW</button>`
+                  : ''
+              }
+            </p>
+          `;
+        })
+        .join('')}
+      </div>
+    </div>
+  `;
+
+  content.querySelectorAll<HTMLButtonElement>('[data-schedule-day]').forEach((button) => {
+    button.addEventListener('click', () => {
+      selectedScheduleDay = button.dataset.scheduleDay as FestivalDay;
+      selectedScheduleStageId = DEFAULT_DEMO_STAGE_ID;
+      renderScheduleSheet(content);
+    });
+  });
+
+  content.querySelectorAll<HTMLButtonElement>('[data-schedule-stage]').forEach((button) => {
+    button.addEventListener('click', () => {
+      selectedScheduleStageId = button.dataset.scheduleStage as StageId;
+      renderScheduleSheet(content);
+    });
+  });
+
+  bindNavigationButtons(content);
+};
+
+const renderMapSheet = (content: HTMLElement): void => {
+  const stages = getStages(getActiveFestivalDay());
+
+  content.innerHTML = `
+    <h2>MAPA DEL PREDIO</h2>
+    <div class="sheet-scroll-area">
+      <div class="map-list">
+        ${stages
+          .map(
+            (stage) => `
+              <p>
+                <strong>${escapeHtml(stage.shortName)}</strong>
+                <span>${escapeHtml(formatDistance(DEMO_STAGE_LOCATIONS[stage.id].demoDistanceMeters))}</span>
+              </p>
+            `,
+          )
+          .join('')}
+      </div>
+    </div>
+  `;
 };
 
 const closeSheet = (): void => {

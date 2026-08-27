@@ -1,4 +1,5 @@
-import { DEBUG_NAVIGATION, DEMO_NAVIGATION, DESTINATION } from '../config/navigation';
+import { DEBUG_NAVIGATION, getStageNavigationConfig } from '../config/navigation';
+import { getStageById, type StageId } from '../data/cosquinRock2026';
 import {
   calculateBearing,
   calculateDistance,
@@ -22,13 +23,15 @@ const GEOLOCATION_OPTIONS: PositionOptions = {
 
 export class NavigationController {
   private readonly callbacks: NavigationCallbacks;
+  private readonly stageId: StageId;
   private watchId: number | null = null;
   private position: NavigationPosition | null = null;
   private heading: number | null = null;
   private isRunning = false;
 
-  constructor(callbacks: NavigationCallbacks) {
+  constructor(callbacks: NavigationCallbacks, stageId: StageId) {
     this.callbacks = callbacks;
+    this.stageId = stageId;
   }
 
   async start(): Promise<void> {
@@ -130,16 +133,22 @@ export class NavigationController {
   }
 
   private emitUpdate(statusMessage: string): void {
+    const destinationConfig = getStageNavigationConfig(this.stageId);
+    const destinationStage = getStageById(this.stageId);
+    const destinationPosition = {
+      latitude: destinationConfig.latitude,
+      longitude: destinationConfig.longitude,
+    };
     const destinationBearing = this.position
-      ? calculateBearing(this.position, DESTINATION)
-      : DEMO_NAVIGATION.bearingDegrees;
+      ? calculateBearing(this.position, destinationPosition)
+      : destinationConfig.demoBearingDegrees;
     const distanceMeters = this.position
-      ? calculateDistance(this.position, DESTINATION)
-      : DEMO_NAVIGATION.distanceMeters;
+      ? calculateDistance(this.position, destinationPosition)
+      : destinationConfig.demoDistanceMeters;
     const relativeBearing =
       destinationBearing !== null && this.heading !== null
         ? calculateRelativeBearing(destinationBearing, this.heading)
-        : DEMO_NAVIGATION.bearingDegrees;
+        : destinationConfig.demoBearingDegrees;
 
     if (DEBUG_NAVIGATION) {
       console.debug('[NAV] destination bearing', destinationBearing);
@@ -147,7 +156,7 @@ export class NavigationController {
     }
 
     const state: NavigationState = {
-      destinationName: DESTINATION.name,
+      destinationName: destinationStage.name.toUpperCase(),
       position: this.position,
       heading: this.heading,
       destinationBearing,
