@@ -1,5 +1,7 @@
 import './styles.css';
 import { ARExperience } from './ar/ARExperience';
+import { createFavoritesIcs, createShowIcs, getShowIcsFilename } from './calendar/ics';
+import { createGoogleCalendarUrl } from './calendar/googleCalendar';
 import { DEBUG_NAVIGATION, DEFAULT_DEMO_STAGE_ID, DEMO_STAGE_LOCATIONS, getStageNavigationConfig } from './config/navigation';
 import {
   canNavigateToShow,
@@ -26,6 +28,13 @@ import {
   isFavoriteShow,
   toggleFavoriteShow,
 } from './data/favoriteShows';
+import {
+  getReminderOffsetMinutes,
+  REMINDER_OFFSET_OPTIONS,
+  setReminderOffsetMinutes,
+  type ReminderOffsetMinutes,
+} from './data/reminderPreferences';
+import { hasReminderRequested, markReminderRequested } from './data/reminderRequests';
 import { NavigationController } from './navigation/NavigationController';
 import { calculateShortestAngleDelta, formatDistance } from './navigation/navigationMath';
 import type { NavigationState } from './navigation/navigationTypes';
@@ -33,11 +42,14 @@ import { registerOfflineSupport, type OfflineStatus } from './offline/registerSe
 
 type StatusMode = 'idle' | 'starting' | 'scanning' | 'found' | 'error';
 type ExperienceMode = 'scanning' | 'target' | 'navigation';
-type SheetType = 'schedule' | 'map' | 'favorites';
+type SheetType = 'schedule' | 'map' | 'favorites' | 'reminder';
 type NavigationSelection = {
   stageId: StageId;
   show?: ResolvedFestivalShow;
 };
+type ReminderSelection =
+  | { type: 'show'; show: ResolvedFestivalShow }
+  | { type: 'favorites'; shows: ResolvedFestivalShow[] };
 
 const app = document.querySelector<HTMLDivElement>('#app');
 
@@ -56,6 +68,7 @@ let arrowAnimationFrame = 0;
 let selectedScheduleDay: FestivalDay = getActiveFestivalDay();
 let selectedScheduleStageId: StageId = DEFAULT_DEMO_STAGE_ID;
 let selectedNavigation: NavigationSelection | null = null;
+let selectedReminder: ReminderSelection | null = null;
 let offlineToastTimeout = 0;
 
 function getActiveFestivalDay(): FestivalDay {
@@ -114,6 +127,11 @@ const getFutureDayLabel = (day: FestivalDay): string => {
   return festivalDays.find((item) => item.id === day)?.label ?? day;
 };
 
+const canCreateReminderForShow = (show: ResolvedFestivalShow, now: Date): boolean => {
+  const status = getShowTemporalState(show, now);
+  return status === 'upcoming-today' || status === 'future-day';
+};
+
 const renderShell = (): void => {
   app.innerHTML = `
     <main class="app-shell" aria-live="polite">
@@ -170,6 +188,7 @@ const renderShell = (): void => {
             <nav class="navigation-actions" aria-label="Controles de navegación">
               <button class="navigation-action-button" type="button" data-open-schedule>GRILLA</button>
               <button class="navigation-action-button" type="button" data-open-favorites-nav>★ MI GRILLA</button>
+              <button class="navigation-action-button" type="button" data-open-map>MAPA</button>
               <button class="navigation-action-button" type="button" data-exit-navigation>SALIR</button>
             </nav>
           </footer>
@@ -192,6 +211,7 @@ const renderShell = (): void => {
   const exitNavigationButton = app.querySelector<HTMLButtonElement>('[data-exit-navigation]');
   const scheduleButton = app.querySelector<HTMLButtonElement>('[data-open-schedule]');
   const navigationFavoritesButton = app.querySelector<HTMLButtonElement>('[data-open-favorites-nav]');
+  const mapButton = app.querySelector<HTMLButtonElement>('[data-open-map]');
   const favoritesButton = app.querySelector<HTMLButtonElement>('[data-open-favorites]');
   const closeSheetButton = app.querySelector<HTMLButtonElement>('[data-close-sheet]');
   const sheetBackdrop = app.querySelector<HTMLElement>('[data-sheet-backdrop]');
@@ -201,6 +221,7 @@ const renderShell = (): void => {
   exitNavigationButton?.addEventListener('click', exitNavigationMode);
   scheduleButton?.addEventListener('click', () => openSheet('schedule'));
   navigationFavoritesButton?.addEventListener('click', () => openSheet('favorites'));
+  mapButton?.addEventListener('click', () => openSheet('map'));
   favoritesButton?.addEventListener('click', () => openSheet('favorites'));
   closeSheetButton?.addEventListener('click', closeSheet);
   sheetBackdrop?.addEventListener('click', closeSheet);
@@ -291,6 +312,63 @@ const updateFestivalUi = (): void => {
 };
 
 const bindNavigationButtons = (root: ParentNode): void => {
+  root.querySelectorAll<HTMLButtonElement>('[data-reminder-offset]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const minutes = Number(button.dataset.reminderOffset) as ReminderOffsetMinutes;
+      setReminderOffsetMinutes(minutes);
+      const content = app.querySelector<HTMLElement>('[data-sheet-content]');
+      if (content?.dataset.sheetType === 'favorites') renderFavoritesSheet(content);
+    });
+  });
+
+  root.querySelectorAll<HTMLButtonElement>('[data-add-reminder]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const show = findShowByKey(button.dataset.addReminder);
+      if (!show) return;
+
+      openReminderSelector({ type: 'show', show });
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-add-favorites-calendar]')?.addEventListener('click', () => {
+    const now = getAppNow();
+    const reminderShows = getFavoriteShows().filter((show) => canCreateReminderForShow(show, now));
+    if (reminderShows.length === 0) return;
+
+    openReminderSelector({ type: 'favorites', shows: reminderShows });
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-use-google-calendar]')?.addEventListener('click', () => {
+    const selection = selectedReminder;
+    if (!selection || selection.type !== 'show' || !navigator.onLine) return;
+
+    showToast('ABRIENDO CALENDARIO...');
+    window.open(createGoogleCalendarUrl(selection.show), '_blank', 'noopener,noreferrer');
+    markReminderRequested(selection.show.id);
+    closeSheet();
+    window.setTimeout(() => showToast('EVENTO LISTO PARA AGREGAR'), 700);
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-use-device-calendar]')?.addEventListener('click', () => {
+    const selection = selectedReminder;
+    if (!selection) return;
+
+    const reminderMinutes = getReminderOffsetMinutes();
+    showToast('ABRIENDO CALENDARIO...');
+
+    if (selection.type === 'show') {
+      openDeviceCalendar(createShowIcs(selection.show, reminderMinutes), getShowIcsFilename(selection.show));
+      markReminderRequested(selection.show.id);
+    } else {
+      openDeviceCalendar(createFavoritesIcs(selection.shows, reminderMinutes), 'mi-grilla-cosquin-rock.ics');
+      selection.shows.forEach((show) => markReminderRequested(show.id));
+    }
+
+    closeSheet();
+    window.setTimeout(() => showToast('ABRÍ EL EVENTO Y CONFIRMALO'), 700);
+  });
+
   root.querySelectorAll<HTMLButtonElement>('[data-toggle-favorite]').forEach((button) => {
     button.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -324,6 +402,30 @@ const bindNavigationButtons = (root: ParentNode): void => {
   });
 };
 
+const openDeviceCalendar = (content: string, filename: string): void => {
+  downloadIcs(content, filename);
+};
+
+const openReminderSelector = (selection: ReminderSelection): void => {
+  selectedReminder = selection;
+  openSheet('reminder');
+};
+
+const downloadIcs = (content: string, filename: string): void => {
+  const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+
+  link.href = url;
+  link.download = filename;
+  link.rel = 'noopener';
+  document.body.append(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
 const renderFavoriteButton = (show: ResolvedFestivalShow): string => {
   const favorite = isFavoriteShow(show.id);
   return `
@@ -334,6 +436,25 @@ const renderFavoriteButton = (show: ResolvedFestivalShow): string => {
       data-toggle-favorite="${escapeHtml(show.id)}"
     >
       ${favorite ? '★' : '☆'}
+    </button>
+  `;
+};
+
+const renderReminderButton = (show: ResolvedFestivalShow, reminderMinutes: number): string => {
+  const requested = hasReminderRequested(show.id);
+  const label = requested ? '✓ RECORDATORIO PREPARADO' : '🔔 RECORDARME';
+  const ariaLabel = requested
+    ? `Volver a abrir recordatorio de ${show.artist}`
+    : `Agregar recordatorio de ${show.artist}, ${reminderMinutes} minutos antes`;
+
+  return `
+    <button
+      class="reminder-button ${requested ? 'is-requested' : ''}"
+      type="button"
+      aria-label="${escapeHtml(ariaLabel)}"
+      data-add-reminder="${escapeHtml(show.id)}"
+    >
+      ${label}
     </button>
   `;
 };
@@ -400,26 +521,34 @@ const showTargetBadge = (): void => {
 };
 
 const showOfflineStatus = (status: OfflineStatus): void => {
-  const toast = app.querySelector<HTMLElement>('[data-offline-toast]');
-  if (!toast) return;
-
-  window.clearTimeout(offlineToastTimeout);
-
   if (status === 'offline') {
-    toast.textContent = 'MODO OFFLINE';
-    toast.hidden = false;
+    showToast('MODO OFFLINE', true);
     return;
   }
 
   if (status === 'online') {
+    const toast = app.querySelector<HTMLElement>('[data-offline-toast]');
+    if (!toast) return;
+    window.clearTimeout(offlineToastTimeout);
     toast.hidden = true;
     toast.textContent = '';
     return;
   }
 
   if (status === 'ready') {
-    toast.textContent = '✓ LISTO PARA USAR OFFLINE';
-    toast.hidden = false;
+    showToast('✓ LISTO PARA USAR OFFLINE');
+  }
+};
+
+const showToast = (message: string, persistent = false): void => {
+  const toast = app.querySelector<HTMLElement>('[data-offline-toast]');
+  if (!toast) return;
+
+  window.clearTimeout(offlineToastTimeout);
+  toast.textContent = message;
+  toast.hidden = false;
+
+  if (!persistent) {
     offlineToastTimeout = window.setTimeout(() => {
       if (navigator.onLine) {
         toast.hidden = true;
@@ -649,6 +778,8 @@ const openSheet = (type: SheetType): void => {
     renderScheduleSheet(content);
   } else if (type === 'map') {
     renderMapSheet(content);
+  } else if (type === 'reminder') {
+    renderReminderSheet(content);
   } else {
     renderFavoritesSheet(content);
   }
@@ -659,6 +790,40 @@ const openSheet = (type: SheetType): void => {
     sheet.dataset.open = 'true';
     backdrop.dataset.open = 'true';
   });
+};
+
+const renderReminderSheet = (content: HTMLElement): void => {
+  const selection = selectedReminder;
+  if (!selection) {
+    content.innerHTML = '<h2>AGREGAR RECORDATORIO</h2>';
+    return;
+  }
+
+  const isSingleShow = selection.type === 'show';
+  const online = navigator.onLine;
+  const title = isSingleShow ? selection.show.artist : 'MI GRILLA';
+  const meta = isSingleShow
+    ? `${selection.show.stage.name} · ${formatShowTimeRange(selection.show)}`
+    : `${selection.shows.length} shows seleccionados`;
+
+  content.innerHTML = `
+    <div class="reminder-choice">
+      <h2>AGREGAR RECORDATORIO</h2>
+      <strong>${escapeHtml(title)}</strong>
+      <span>${escapeHtml(meta)}</span>
+      <div class="reminder-choice-actions">
+        ${
+          isSingleShow && online
+            ? '<button type="button" data-use-google-calendar>GOOGLE CALENDAR</button>'
+            : ''
+        }
+        <button type="button" data-use-device-calendar>CALENDARIO DEL DISPOSITIVO</button>
+      </div>
+      <p>${online ? 'Abrí el evento y confirmalo en tu calendario.' : 'Disponible sin conexión.'}</p>
+    </div>
+  `;
+
+  bindNavigationButtons(content);
 };
 
 const renderScheduleSheet = (content: HTMLElement): void => {
@@ -678,6 +843,7 @@ const renderScheduleSheet = (content: HTMLElement): void => {
   const selectedDayLabel =
     festivalDays.find((day) => day.id === selectedScheduleDay)?.fullLabel ?? 'GRILLA COSQUÍN ROCK';
   const shows = getShowsForStage(selectedScheduleDay, selectedScheduleStageId);
+  const reminderMinutes = getReminderOffsetMinutes();
 
   content.innerHTML = `
     <h2>${escapeHtml(selectedDayLabel)}</h2>
@@ -718,6 +884,7 @@ const renderScheduleSheet = (content: HTMLElement): void => {
           const status = getShowTemporalState(show, now);
           const isCurrent = status === 'live';
           const canNavigate = canNavigateToShow(show, now);
+          const canCreateReminder = canCreateReminderForShow(show, now);
           const statusLabel = getStatusLabel(status, show, now);
           return `
             <p class="${isCurrent ? 'is-current' : ''}">
@@ -730,6 +897,7 @@ const renderScheduleSheet = (content: HTMLElement): void => {
                   ? `<button class="show-route-button" type="button" data-navigate-show="${escapeHtml(show.id)}">IR A ESTE SHOW</button>`
                   : ''
               }
+              ${canCreateReminder ? renderReminderButton(show, reminderMinutes) : ''}
             </p>
           `;
         })
@@ -760,6 +928,8 @@ const renderFavoritesSheet = (content: HTMLElement): void => {
   const now = getAppNow();
   const favoriteShows = getFavoriteShows();
   const overlappingIds = getOverlappingFavoriteShowIds();
+  const reminderMinutes = getReminderOffsetMinutes();
+  const reminderShows = favoriteShows.filter((show) => canCreateReminderForShow(show, now));
 
   if (favoriteShows.length === 0) {
     content.innerHTML = `
@@ -780,6 +950,29 @@ const renderFavoritesSheet = (content: HTMLElement): void => {
 
   content.innerHTML = `
     <h2>MI GRILLA</h2>
+    <div class="reminder-toolbar">
+      <div class="reminder-offsets" aria-label="Anticipación del recordatorio">
+        ${REMINDER_OFFSET_OPTIONS.map(
+          (minutes) => `
+            <button
+              class="${minutes === reminderMinutes ? 'is-active' : ''}"
+              type="button"
+              data-reminder-offset="${minutes}"
+            >
+              ${minutes} MIN
+            </button>
+          `,
+        ).join('')}
+      </div>
+      <button
+        class="calendar-all-button"
+        type="button"
+        data-add-favorites-calendar
+        ${reminderShows.length === 0 ? 'disabled' : ''}
+      >
+        AGREGAR TODA MI GRILLA
+      </button>
+    </div>
     <div class="sheet-scroll-area">
       <div class="favorites-list">
         ${festivalDays
@@ -795,6 +988,7 @@ const renderFavoritesSheet = (content: HTMLElement): void => {
                     .map((show) => {
                       const status = getShowTemporalState(show, now);
                       const canNavigate = canNavigateToShow(show, now);
+                      const canCreateReminder = canCreateReminderForShow(show, now);
                       const statusLabel = getStatusLabel(status, show, now);
                       return `
                         <p class="${status === 'live' ? 'is-current' : ''}">
@@ -807,6 +1001,11 @@ const renderFavoritesSheet = (content: HTMLElement): void => {
                           ${
                             canNavigate
                               ? `<button class="show-route-button" type="button" data-navigate-show="${escapeHtml(show.id)}">IR</button>`
+                              : ''
+                          }
+                          ${
+                            canCreateReminder
+                              ? renderReminderButton(show, reminderMinutes)
                               : ''
                           }
                         </p>
