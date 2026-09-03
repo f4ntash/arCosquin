@@ -1,6 +1,4 @@
-import.meta.env;
-
-type Gtag = (command: 'config' | 'event', target: string, parameters?: Record<string, unknown>) => void;
+type Gtag = (...args: unknown[]) => void;
 
 declare global {
   interface Window {
@@ -19,12 +17,17 @@ export const initializeAnalytics = (): void => {
   if (!enabled || !measurementId || window.gtag) return;
 
   window.dataLayer = window.dataLayer || [];
-  window.gtag = ((...args: unknown[]) => window.dataLayer.push(args)) as Gtag;
+  function gtag(..._args: unknown[]): void {
+    window.dataLayer.push(arguments);
+  }
+
+  window.gtag = gtag;
   const script = document.createElement('script');
   script.async = true;
   script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(measurementId)}`;
   document.head.append(script);
-  window.gtag('config', measurementId, { send_page_view: true, debug_mode: debug });
+  gtag('js', new Date());
+  gtag('config', measurementId, { send_page_view: true, ...(debug ? { debug_mode: true } : {}) });
   if (debug) console.info('[Analytics] enabled', { measurementId, hostname });
 };
 
