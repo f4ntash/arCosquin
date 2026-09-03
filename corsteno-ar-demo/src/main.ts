@@ -39,6 +39,7 @@ import { NavigationController } from './navigation/NavigationController';
 import { calculateShortestAngleDelta, formatDistance } from './navigation/navigationMath';
 import type { NavigationState } from './navigation/navigationTypes';
 import { registerOfflineSupport, type OfflineStatus } from './offline/registerServiceWorker';
+import { initializeAnalytics, trackEvent } from './analytics';
 
 type StatusMode = 'idle' | 'starting' | 'scanning' | 'found' | 'error';
 type ExperienceMode = 'scanning' | 'target' | 'navigation';
@@ -70,6 +71,10 @@ let selectedScheduleStageId: StageId = DEFAULT_DEMO_STAGE_ID;
 let selectedNavigation: NavigationSelection | null = null;
 let selectedReminder: ReminderSelection | null = null;
 let offlineToastTimeout = 0;
+let navigationAnalyticsSent = false;
+let directionAnalyticsSent = false;
+let currentShowsAnalyticsSent = false;
+let offlineAnalyticsSent = false;
 
 function getActiveFestivalDay(): FestivalDay {
   return getFestivalDay(getAppNow()) ?? festivalDays[0].id;
@@ -372,7 +377,13 @@ const bindNavigationButtons = (root: ParentNode): void => {
   root.querySelectorAll<HTMLButtonElement>('[data-toggle-favorite]').forEach((button) => {
     button.addEventListener('click', (event) => {
       event.stopPropagation();
-      toggleFavoriteShow(button.dataset.toggleFavorite ?? '');
+      const show = findShowByKey(button.dataset.toggleFavorite);
+      if (!show) return;
+      const isFavorite = toggleFavoriteShow(show.id);
+      trackEvent(isFavorite ? 'favorite_added' : 'favorite_removed', {
+        artist_name: show.artist,
+        stage: show.stage.name,
+      });
       updateFestivalUi();
       const content = app.querySelector<HTMLElement>('[data-sheet-content]');
       if (content?.dataset.sheetType === 'schedule') renderScheduleSheet(content);
@@ -475,6 +486,7 @@ const updateNavigationShowCard = (): void => {
 };
 
 const startNavigationToShow = async (show: ResolvedFestivalShow): Promise<void> => {
+  trackEvent('go_to_show_clicked', { artist_name: show.artist, stage: show.stage.name });
   selectedNavigation = {
     stageId: show.stageId,
     show,
@@ -522,6 +534,10 @@ const showTargetBadge = (): void => {
 
 const showOfflineStatus = (status: OfflineStatus): void => {
   if (status === 'offline') {
+    if (!offlineAnalyticsSent) {
+      trackEvent('offline_mode_used');
+      offlineAnalyticsSent = true;
+    }
     showToast('MODO OFFLINE', true);
     return;
   }
@@ -570,17 +586,29 @@ const startExperience = async (): Promise<void> => {
   selectedNavigation = null;
   updateFestivalUi();
   hasActivatedExperience = false;
+  currentShowsAnalyticsSent = false;
+  directionAnalyticsSent = false;
+  trackEvent('ar_experience_started');
 
   experience = new ARExperience(stage, {
-    onReady: () => setMode('scanning'),
+    onReady: () => {
+      trackEvent('camera_permission_granted');
+      setMode('scanning');
+    },
     onTargetFound: () => {
       hasActivatedExperience = true;
+      trackEvent('ar_target_detected');
+      if (!currentShowsAnalyticsSent) {
+        trackEvent('current_shows_viewed');
+        currentShowsAnalyticsSent = true;
+      }
       if (mode !== 'navigation') {
         setMode('target');
       }
       showTargetBadge();
     },
     onTargetLost: () => {
+      trackEvent('ar_target_lost');
       if (!hasActivatedExperience) {
         setMode('scanning');
         return;
@@ -590,7 +618,10 @@ const startExperience = async (): Promise<void> => {
         setMode('target');
       }
     },
-    onError: (message) => setStatus('error', message),
+    onError: (message) => {
+      if (/permission|camera|cámara/i.test(message)) trackEvent('camera_permission_denied');
+      setStatus('error', message);
+    },
   });
 
   await experience.start();
@@ -600,6 +631,15 @@ const enterNavigationMode = async (): Promise<void> => {
   clearNavigationError();
 
   const stageId = getNavigationStageId();
+  const show = getNavigationShow();
+  if (!navigationAnalyticsSent) {
+    trackEvent('navigation_started', show ? { artist_name: show.artist, stage: show.stage.name } : {});
+    navigationAnalyticsSent = true;
+  }
+  if (!directionAnalyticsSent) {
+    trackEvent('direction_viewed');
+    directionAnalyticsSent = true;
+  }
   updateNavigationShowCard();
 
   navigation?.stop();
@@ -622,6 +662,9 @@ const enterNavigationMode = async (): Promise<void> => {
 };
 
 const exitNavigationMode = (): void => {
+  if (navigationAnalyticsSent) trackEvent('navigation_stopped');
+  navigationAnalyticsSent = false;
+  directionAnalyticsSent = false;
   navigation?.stop();
   navigation = null;
   stopArrowAnimation();
@@ -773,6 +816,10 @@ const openSheet = (type: SheetType): void => {
   if (!sheet || !backdrop || !content) return;
 
   content.dataset.sheetType = type;
+
+  if (type === 'schedule') trackEvent('schedule_viewed');
+  if (type === 'favorites') trackEvent('my_schedule_viewed');
+  if (type === 'map') trackEvent('map_viewed');
 
   if (type === 'schedule') {
     renderScheduleSheet(content);
@@ -1060,6 +1107,8 @@ const closeSheet = (): void => {
 };
 
 renderShell();
+initializeAnalytics();
+trackEvent('ar_experience_viewed');
 
 if (import.meta.env.PROD) {
   void registerOfflineSupport(showOfflineStatus);

@@ -13,6 +13,7 @@ export default defineConfig(({ command }) => {
     existsSync(certPath);
 
   return {
+    envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
     server:
       isDev && hasLocalCerts
         ? {

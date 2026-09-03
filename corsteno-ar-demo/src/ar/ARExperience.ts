@@ -19,6 +19,7 @@ export class ARExperience {
   private animationFrame = 0;
   private isRunning = false;
   private hasShownIntro = false;
+  private targetDetected = false;
   // Arexperience is a singleton, so we can use a static instance to ensure only one instance is running at a time.
   constructor(container: HTMLElement, callbacks: ARExperienceCallbacks) {
     this.container = container;
@@ -96,6 +97,7 @@ export class ARExperience {
     }
 
     this.hasShownIntro = false;
+    this.targetDetected = false;
     this.container.replaceChildren();
   }
 
@@ -116,6 +118,8 @@ export class ARExperience {
   }
 
   private handleTargetFound(): void {
+    if (this.targetDetected) return;
+    this.targetDetected = true;
     if (!this.hasShownIntro) {
       this.hasShownIntro = true;
     }
@@ -124,6 +128,8 @@ export class ARExperience {
   }
 
   private handleTargetLost(): void {
+    if (!this.targetDetected) return;
+    this.targetDetected = false;
     this.callbacks.onTargetLost();
   }
 
