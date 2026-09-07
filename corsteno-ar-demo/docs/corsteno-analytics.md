@@ -1,6 +1,6 @@
 # Corsteno Analytics en Cosquín
 
-La app usa `@corsteno/analytics-client` desde el paquete local del repo CRM (`file:../../crm/packages/analytics-client`). El wrapper está en `src/analytics.ts`; los componentes solo llaman `trackEvent`/`trackOnce`.
+Cosquín usa un cliente interno compatible con Corsteno Event API en `src/lib/corstenoAnalyticsClient.ts`. El wrapper está en `src/analytics.ts`; los componentes solo llaman `trackEvent`/`trackOnce`. En el futuro puede reemplazarse por un paquete publicado sin cambiar el contrato de eventos.
 
 ## Configuración local
 
