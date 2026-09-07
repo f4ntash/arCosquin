@@ -1,46 +1,28 @@
-type Gtag = (...args: unknown[]) => void;
+import { createAnalyticsClient } from '@corsteno/analytics-client';
 
-declare global {
-  interface Window {
-    dataLayer: unknown[];
-    gtag?: Gtag;
-  }
+type Client = ReturnType<typeof createAnalyticsClient>;
+const apiUrl = import.meta.env.VITE_CORSTENO_ANALYTICS_URL?.trim();
+const apiKey = import.meta.env.VITE_CORSTENO_ANALYTICS_KEY?.trim();
+const debug = import.meta.env.VITE_CORSTENO_ANALYTICS_DEBUG?.trim().toLowerCase() === 'true';
+const endpoint = apiUrl ? `${apiUrl.replace(/\/+$/, '')}/v1/events` : null;
+const client: Client | null = apiUrl && apiKey ? createAnalyticsClient({
+  apiUrl: apiUrl.replace(/\/+$/, ''), apiKey,
+  onResponse: (response) => { if (debug) console.info('[Analytics] event sent', { endpoint, status: response.status }); },
+  onError: (error) => { if (debug) console.error('[Analytics] event failed', { endpoint, error: error instanceof Error ? error.message : String(error) }); },
+}) : null;
+
+if (!client && (import.meta.env.DEV || debug)) {
+  console.warn('[Analytics] disabled: VITE_CORSTENO_ANALYTICS_URL and VITE_CORSTENO_ANALYTICS_KEY are required');
 }
 
-const measurementId = import.meta.env.NEXT_PUBLIC_GA_MEASUREMENT_ID?.trim();
-const hostname = window.location.hostname;
-const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
-const debug = new URLSearchParams(window.location.search).get('analytics_debug') === 'true';
-const enabled = Boolean(measurementId) && !isLocalhost;
-
-export const initializeAnalytics = (): void => {
-  if (!enabled || !measurementId || window.gtag) return;
-
-  window.dataLayer = window.dataLayer || [];
-  function gtag(..._args: unknown[]): void {
-    window.dataLayer.push(arguments);
-  }
-
-  window.gtag = gtag;
-  const script = document.createElement('script');
-  script.async = true;
-  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(measurementId)}`;
-  document.head.append(script);
-  gtag('js', new Date());
-  gtag('config', measurementId, { send_page_view: true, ...(debug ? { debug_mode: true } : {}) });
-  if (debug) console.info('[Analytics] enabled', { measurementId, hostname });
-};
-
+const sent = new Set<string>();
+export const initializeAnalytics = (): void => {};
 export const trackEvent = (name: string, parameters: Record<string, unknown> = {}): void => {
-  if (!enabled || !measurementId || !window.gtag) return;
-
-  const safeParameters: Record<string, unknown> = {
-    experience: 'cosquin_ar',
-    page_path: window.location.pathname,
-    hostname,
-    ...parameters,
-    ...(debug ? { debug_mode: true } : {}),
-  };
-  window.gtag('event', name, safeParameters);
-  if (debug) console.info('[Analytics] event', name, safeParameters);
+  if (debug) console.info('[Analytics] event attempted', { event: name, endpoint });
+  if (client) void client.track(name, { surface: 'web', experience: 'cosquin_ar', ...parameters });
+};
+export const trackOnce = (name: string, properties: Record<string, unknown> = {}): void => {
+  if (sent.has(name)) return;
+  sent.add(name);
+  trackEvent(name, properties);
 };

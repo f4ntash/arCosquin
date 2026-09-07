@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "dev:http": "vite --mode local-http --host 0.0.0.0 --port 5175",
     "build": "tsc && vite build && node scripts/generate-service-worker.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
+    "@corsteno/analytics-client": "file:../../crm/packages/analytics-client",
     "mind-ar": "^1.2.5",
     "three": "0.151.3"
   },

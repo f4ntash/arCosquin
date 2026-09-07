@@ -39,7 +39,7 @@ import { NavigationController } from './navigation/NavigationController';
 import { calculateShortestAngleDelta, formatDistance } from './navigation/navigationMath';
 import type { NavigationState } from './navigation/navigationTypes';
 import { registerOfflineSupport, type OfflineStatus } from './offline/registerServiceWorker';
-import { initializeAnalytics, trackEvent } from './analytics';
+import { initializeAnalytics, trackEvent, trackOnce } from './analytics';
 
 type StatusMode = 'idle' | 'starting' | 'scanning' | 'found' | 'error';
 type ExperienceMode = 'scanning' | 'target' | 'navigation';
@@ -588,7 +588,7 @@ const startExperience = async (): Promise<void> => {
   hasActivatedExperience = false;
   currentShowsAnalyticsSent = false;
   directionAnalyticsSent = false;
-  trackEvent('ar_experience_started');
+  trackEvent('experience_started', { experience: 'ar' });
 
   experience = new ARExperience(stage, {
     onReady: () => {
@@ -597,7 +597,7 @@ const startExperience = async (): Promise<void> => {
     },
     onTargetFound: () => {
       hasActivatedExperience = true;
-      trackEvent('ar_target_detected');
+      trackEvent('image_target_detected', { target_id: 'cosquin-rock' });
       if (!currentShowsAnalyticsSent) {
         trackEvent('current_shows_viewed');
         currentShowsAnalyticsSent = true;
@@ -688,6 +688,7 @@ const closeExperience = (): void => {
   closeSheet();
   setView('intro');
   setStatus('idle');
+  trackEvent('experience_finished', { experience: 'ar' });
 };
 
 const updateNavigationOverlay = (state: NavigationState): void => {
@@ -1108,7 +1109,8 @@ const closeSheet = (): void => {
 
 renderShell();
 initializeAnalytics();
-trackEvent('ar_experience_viewed');
+trackOnce('app_opened', { app_version: '0.1.0', language: document.documentElement.lang || 'es' });
+trackOnce('session_started');
 
 if (import.meta.env.PROD) {
   void registerOfflineSupport(showOfflineStatus);
