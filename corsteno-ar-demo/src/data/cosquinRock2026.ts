@@ -40,7 +40,9 @@ export type CurrentShowAcrossStage = {
 export type ShowStatus = 'live' | 'upcoming' | 'finished';
 export type ShowTemporalState = 'live' | 'upcoming-today' | 'future-day' | 'finished';
 
-export const DEMO_TIME_ENABLED = true;
+// La fecha simulada mantiene visibles los estados del festival durante demos y QA.
+export const DEMO_MODE = true;
+export const DEMO_TIME_ENABLED = DEMO_MODE;
 export const DEMO_DATE = new Date('2026-02-14T18:00:00-03:00');
 export const DEFAULT_LAST_SHOW_DURATION_MINUTES = 75;
 

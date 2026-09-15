@@ -6,9 +6,9 @@ Cosquín usa un cliente interno compatible con Corsteno Event API en `src/lib/co
 
 Copiar `.env.example` a `.env.local` y completar la key local fuera del repositorio. La credential debe permitir solo ingestión (`POST /v1/events` y batch), nunca lectura o administración. La API URL y key no se hardcodean en componentes.
 
-Con API local se mantiene la configuración existente en `.env.local` (`https://127.0.0.1:8787`). Para producción, Cloudflare debe inyectar `VITE_CORSTENO_ANALYTICS_URL=https://api.corsteno.com`, la key productiva y `VITE_CORSTENO_ANALYTICS_DEBUG=false`. Si faltan URL o key, el tracking se desactiva y la app sigue funcionando; solo se muestra warning en development/debug.
+Con API local se mantiene la configuración existente en `.env.local` (`https://127.0.0.1:8787`). Para producción, pasar `VITE_CORSTENO_ANALYTICS_URL=https://api.corsteno.com`, la key de ingestión frontend y `VITE_CORSTENO_ANALYTICS_DEBUG=false` al entorno que ejecuta `npm run build`; como la app es estática, esas variables se incorporan al cliente durante el build, no se leen desde variables runtime del Worker. `scripts/build-production.mjs` evita que los valores de `.env.local` pasen a producción si no se suministran explícitamente. La key resultante es visible para visitantes: debe permitir ingestión únicamente y nunca ser un secreto administrativo. Si faltan URL o key, el tracking se desactiva y la app sigue funcionando; solo se muestra warning en development/debug.
 
-El endpoint productivo resultante es `https://api.corsteno.com/v1/events`; el batch del cliente usa el mismo endpoint por evento.
+El endpoint productivo resultante es `https://api.corsteno.com/v1/events`; el batch del cliente usa el mismo endpoint por evento. Todos los eventos añaden `surface=web`, `experience=cosquin_ar` y `demo_mode=true` en `properties`; no se modificó el contrato superior del payload.
 
 ## CORS de producción
 

@@ -142,12 +142,14 @@ const renderShell = (): void => {
     <main class="app-shell" aria-live="polite">
       <section class="intro-screen" data-view="intro">
         <div class="intro-copy">
+          <p class="demo-mode-badge">MODO DEMO</p>
           <p class="kicker">CORSTENO LABS</p>
           <h1>
             <span>COSQUÍN ROCK</span>
             <span>AR CONCEPT</span>
           </h1>
-          <p class="subtitle">Experiencia conceptual de realidad aumentada</p>
+          <p class="subtitle">Experiencia interactiva de realidad aumentada</p>
+          <p class="demo-explanation">Probá la experiencia AR, la agenda y la navegación con shows y ubicaciones simulados.</p>
         </div>
         <div class="intro-actions">
           <button class="start-button" type="button">INICIAR EXPERIENCIA</button>
@@ -157,6 +159,7 @@ const renderShell = (): void => {
 
       <section class="ar-screen" data-view="ar" hidden>
         <div class="ar-stage" data-ar-stage></div>
+        <div class="ar-demo-badge" aria-label="Modo demo: shows simulados del 14 de febrero de 2026">MODO DEMO <span>· Shows simulados · 14 FEB 2026</span></div>
         <button class="close-button" type="button" aria-label="Cerrar experiencia AR">×</button>
         <div class="tracking-hint" data-status>
           <strong data-status-title>APUNTÁ AL CARTEL</strong>
@@ -175,7 +178,8 @@ const renderShell = (): void => {
         <div class="navigation-overlay" data-navigation-overlay hidden>
           <header class="navigation-header">
             <strong>COSQUÍN ROCK</strong>
-            <span>NAVEGACIÓN</span>
+            <span>NAVEGACIÓN DEMO</span>
+            <small>Ubicaciones simuladas · no corresponden al predio real</small>
           </header>
           <div class="navigation-core">
             <div class="navigation-arrow" data-navigation-arrow>↑</div>
@@ -257,7 +261,7 @@ const setStatus = (mode: StatusMode, message?: string): void => {
   }
 
   if (mode === 'error') {
-    title.textContent = 'ERROR DE DESARROLLO';
+    title.textContent = 'NO SE PUDO INICIAR AR';
     detail.textContent = message ?? '';
     return;
   }

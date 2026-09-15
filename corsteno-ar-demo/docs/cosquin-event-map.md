@@ -1,6 +1,6 @@
 # Cosquín Rock — event map (implementación actual)
 
-Esta tabla refleja únicamente los nombres que llegan a `client.track(...)` desde `src/analytics.ts`. Todos incluyen automáticamente `surface: web` y `experience: cosquin_ar`.
+Esta tabla refleja únicamente los nombres que llegan a `client.track(...)` desde `src/analytics.ts`. Todos incluyen automáticamente `surface: web`, `experience: cosquin_ar` y `demo_mode: true`. El marcador de demo se envía como propiedad del evento solo cuando el cliente Analytics está configurado.
 
 ## Lista completa de Event Names
 

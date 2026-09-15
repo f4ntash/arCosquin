@@ -185,8 +185,26 @@ export class ARExperience {
   }
 
   private normalizeError(error: unknown): string {
-    if (error instanceof Error && error.message.trim()) {
-      return error.stack ?? error.message;
+    if (error instanceof Error) {
+      if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
+        return 'No se pudo acceder a la cámara. Revisá el permiso del navegador y volvé a intentar.';
+      }
+
+      if (error.name === 'NotFoundError') {
+        return 'Este dispositivo no tiene una cámara disponible.';
+      }
+
+      if (error.name === 'NotReadableError') {
+        return 'La cámara está ocupada por otra aplicación. Cerrala y volvé a intentar.';
+      }
+
+      if (error.message.includes('Target AR no encontrado')) {
+        return 'No se encontró el recurso de referencia AR. Recargá la experiencia y volvé a intentar.';
+      }
+
+      if (/timeout/i.test(error.message)) {
+        return 'La cámara tardó demasiado en iniciar. Revisá el permiso y volvé a intentar.';
+      }
     }
 
     return 'No se pudo iniciar la experiencia AR. Revisá permisos de cámara y compatibilidad del navegador.';

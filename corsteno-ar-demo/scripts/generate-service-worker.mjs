@@ -1,4 +1,5 @@
-import { readdir, stat, writeFile } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join, relative, sep } from 'node:path';
 
@@ -23,9 +24,12 @@ const collectFiles = async (directory) => {
 };
 
 const files = await collectFiles(distDir);
-const fileStats = await Promise.all(files.map((file) => stat(file)));
-const versionSource = fileStats.map((item) => `${item.size}-${item.mtimeMs}`).join('|');
-const versionHash = Buffer.from(versionSource).toString('base64url').slice(0, 16);
+const versionHasher = createHash('sha256');
+for (const file of files.sort()) {
+  versionHasher.update(toUrlPath(file));
+  versionHasher.update(await readFile(file));
+}
+const versionHash = versionHasher.digest('hex').slice(0, 16);
 const precacheUrls = Array.from(new Set([...requiredUrls, ...files.map(toUrlPath)])).sort();
 
 const serviceWorker = `const CACHE_VERSION = 'corsteno-ar-demo-${versionHash}';

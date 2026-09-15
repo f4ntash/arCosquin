@@ -18,9 +18,17 @@ const getOrCreateId = (storage: Storage, key: string): string => {
   return id;
 };
 
+const getOrCreateIdSafely = (getStorage: () => Storage, key: string): string => {
+  try {
+    return getOrCreateId(getStorage(), key);
+  } catch {
+    return crypto.randomUUID();
+  }
+};
+
 export const createCorstenoAnalyticsClient = ({ apiUrl, apiKey, debug }: AnalyticsClientOptions) => {
-  const userId = getOrCreateId(localStorage, 'corsteno_anon_id');
-  const sessionId = getOrCreateId(sessionStorage, 'corsteno_session_id');
+  const userId = getOrCreateIdSafely(() => localStorage, 'corsteno_anon_id');
+  const sessionId = getOrCreateIdSafely(() => sessionStorage, 'corsteno_session_id');
   const endpoint = `${apiUrl.replace(/\/+$/, '')}/v1/events`;
 
   const track = async (event: CosquinEventName, properties: AnalyticsProperties = {}): Promise<void> => {

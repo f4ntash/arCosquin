@@ -1,4 +1,5 @@
 import { createCorstenoAnalyticsClient, type AnalyticsProperties, type CosquinEventName } from './lib/corstenoAnalyticsClient';
+import { DEMO_MODE } from './data/cosquinRock2026';
 const apiUrl = import.meta.env.VITE_CORSTENO_ANALYTICS_URL?.trim();
 const apiKey = import.meta.env.VITE_CORSTENO_ANALYTICS_KEY?.trim();
 const debug = import.meta.env.VITE_CORSTENO_ANALYTICS_DEBUG?.trim().toLowerCase() === 'true';
@@ -17,7 +18,7 @@ const sent = new Set<string>();
 export const initializeAnalytics = (): void => {};
 export const trackEvent = (name: CosquinEventName, parameters: AnalyticsProperties = {}): void => {
   if (debug && !client) console.info('[Analytics] event attempted', { event: name, endpoint });
-  if (client) void client.track(name, { surface: 'web', experience: 'cosquin_ar', ...parameters });
+  if (client) void client.track(name, { surface: 'web', experience: 'cosquin_ar', ...parameters, demo_mode: DEMO_MODE });
 };
 export const trackOnce = (name: CosquinEventName, properties: AnalyticsProperties = {}): void => {
   if (sent.has(name)) return;
